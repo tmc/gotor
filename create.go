@@ -11,7 +11,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"github.com/tvdw/openssl"
+
 	"golang.org/x/crypto/curve25519"
 )
 
@@ -134,7 +134,7 @@ func (c *OnionConnection) handleCreateTAP(id CircuitID, data []byte, newHandshak
 		dhKey = key
 	}
 
-	dh, err := openssl.LoadDHFromBignumWithGenerator(dhKey, 2)
+	dh, err := LoadDHFromBignumWithGenerator(dhKey, 2)
 	if err != nil {
 		return RefuseCircuit(err, DESTROY_REASON_INTERNAL)
 	}

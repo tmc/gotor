@@ -5,24 +5,22 @@
 package main
 
 import (
-	"crypto/sha1"
-	"crypto/sha256"
+	"crypto/tls"
 	"encoding/base32"
-	"github.com/tvdw/openssl"
+	"fmt"
 	"log"
 	"math/rand"
 	"net"
 	"strings"
-	"time"
 )
 
-const SSLRecordSize = openssl.SSLRecordSize
+const SSLRecordSize = 16 * 1024
 
 type TorTLS struct {
-	ctx *openssl.Ctx
+	ctx *Ctx
 
-	LinkKey, IdKey, AuthKey             openssl.PrivateKey
-	LinkCert, IdCert, AuthCert          *openssl.Certificate
+	LinkKey, IdKey, AuthKey             PrivateKey
+	LinkCert, IdCert, AuthCert          *Certificate
 	LinkCertDER, IdCertDER, AuthCertDER []byte
 	Fingerprint                         Fingerprint
 	Fingerprint256                      []byte
@@ -30,160 +28,164 @@ type TorTLS struct {
 
 func NewTLSCtx(isClient bool, or *ORCtx) (*TorTLS, error) {
 	log.Printf("Creating TLS context with isClient=%v\n", isClient)
+	panic("not implemented")
+	return nil, fmt.Errorf("not implemented")
 
-	sslCtx, err := openssl.NewCtxWithVersion(openssl.AnyVersion)
-	if err != nil {
-		return nil, err
-	}
-
-	tls := &TorTLS{
-		ctx: sslCtx,
-	}
-
-	// Considering how important this piece of code is for resisting fingerprints, we just follow whatever Tor itself does
-
-	if !isClient { // XXX simplify
-		nickname1 := RandomHostname(8, 20, "www.", ".net")
-		nickname2 := RandomHostname(8, 20, "www.", ".com")
-
-		issued, _ := time.ParseDuration("-24h") // XXX check what tor does (some time ago, then a long-time cert)
-		expires, _ := time.ParseDuration("24h") // XXX also, don't re-use for all certs
-
-		tmpPk, err := openssl.GenerateRSAKeyWithExponent(1024, 65537)
+	/*
+		sslCtx, err := NewCtxWithVersion(AnyVersion)
 		if err != nil {
 			return nil, err
 		}
 
-		authPk, err := openssl.GenerateRSAKeyWithExponent(1024, 65537)
-		if err != nil {
-			return nil, err
+		tls := &TorTLS{
+			ctx: sslCtx,
 		}
 
-		cert, err := openssl.NewCertificate(&openssl.CertificateInfo{
-			CommonName: nickname1,
-			Serial:     rand.Int63(),
-			Issued:     issued,
-			Expires:    expires,
-		}, tmpPk)
-		if err != nil {
-			return nil, err
+		// Considering how important this piece of code is for resisting fingerprints, we just follow whatever Tor itself does
+
+		if !isClient { // XXX simplify
+			nickname1 := RandomHostname(8, 20, "www.", ".net")
+			nickname2 := RandomHostname(8, 20, "www.", ".com")
+
+			issued, _ := time.ParseDuration("-24h") // XXX check what tor does (some time ago, then a long-time cert)
+			expires, _ := time.ParseDuration("24h") // XXX also, don't re-use for all certs
+
+			tmpPk, err := GenerateRSAKeyWithExponent(1024, 65537)
+			if err != nil {
+				return nil, err
+			}
+
+			authPk, err := GenerateRSAKeyWithExponent(1024, 65537)
+			if err != nil {
+				return nil, err
+			}
+
+			cert, err := NewCertificate(&CertificateInfo{
+				CommonName: nickname1,
+				Serial:     rand.Int63(),
+				Issued:     issued,
+				Expires:    expires,
+			}, tmpPk)
+			if err != nil {
+				return nil, err
+			}
+
+			identityPk := or.identityKey
+
+			idcert, err := NewCertificate(&CertificateInfo{
+				CommonName: nickname2,
+				Serial:     rand.Int63(),
+				Issued:     issued,
+				Expires:    expires,
+			}, identityPk)
+			if err != nil {
+				return nil, err
+			}
+
+			authcert, err := NewCertificate(&CertificateInfo{
+				CommonName: nickname1,
+				Serial:     rand.Int63(),
+				Issued:     issued,
+				Expires:    expires,
+			}, authPk)
+			if err != nil {
+				return nil, err
+			}
+
+			if err := cert.SetIssuer(idcert); err != nil {
+				return nil, err
+			}
+			if err := cert.Sign(identityPk, EVP_SHA1); err != nil {
+				return nil, err
+			}
+
+			if err := idcert.SetIssuer(idcert); err != nil {
+				return nil, err
+			}
+			if err := idcert.Sign(identityPk, EVP_SHA1); err != nil {
+				return nil, err
+			}
+
+			if err := authcert.SetIssuer(idcert); err != nil {
+				return nil, err
+			}
+			if err := authcert.Sign(identityPk, EVP_SHA1); err != nil {
+				return nil, err
+			}
+
+			sslCtx.UseCertificate(cert)
+			sslCtx.UsePrivateKey(tmpPk)
+
+			sslCtx.SetEllipticCurve(Prime256v1)
+
+			tls.LinkCert = cert
+			tls.LinkKey = tmpPk
+			tls.LinkCertDER, err = cert.MarshalDER()
+			if err != nil {
+				return nil, err
+			}
+
+			tls.IdCert = idcert
+			tls.IdKey = identityPk
+			tls.IdCertDER, err = idcert.MarshalDER()
+			if err != nil {
+				return nil, err
+			}
+
+			keyDer, _ := identityPk.MarshalPKCS1PublicKeyDER()
+			fingerprint := sha1.Sum(keyDer)
+			log.Printf("Our fingerprint is %X\n", fingerprint)
+			copy(tls.Fingerprint[:], fingerprint[:])
+
+			{
+				sha := sha256.New()
+				sha.Write(keyDer)
+				tls.Fingerprint256 = sha.Sum(nil)
+			}
+
+			tls.AuthCert = authcert
+			tls.AuthKey = authPk
+			tls.AuthCertDER, err = authcert.MarshalDER()
+			if err != nil {
+				return nil, err
+			}
 		}
 
-		identityPk := or.identityKey
+		// We don't want SSLv2 or SSLv3
+		sslCtx.SetOptions(NoSSLv2 | NoSSLv3)
 
-		idcert, err := openssl.NewCertificate(&openssl.CertificateInfo{
-			CommonName: nickname2,
-			Serial:     rand.Int63(),
-			Issued:     issued,
-			Expires:    expires,
-		}, identityPk)
-		if err != nil {
-			return nil, err
+		// Prefer the server's ordering of ciphers: the client's ordering has
+		// historically been chosen for fingerprinting resistance.
+		sslCtx.SetOptions(CipherServerPreference)
+
+		//XXX: panic() if we don't have openssl of 1.0.1e or later
+		//XXX: please remember me why...
+
+		// Tickets hurt perfect forward secrecy, but we still have non-server clients announce them, to reduce fingerprinting impact
+		if !isClient {
+			sslCtx.SetOptions(NoTicket)
 		}
 
-		authcert, err := openssl.NewCertificate(&openssl.CertificateInfo{
-			CommonName: nickname1,
-			Serial:     rand.Int63(),
-			Issued:     issued,
-			Expires:    expires,
-		}, authPk)
-		if err != nil {
-			return nil, err
-		}
+		// This saves us quite some memory
+		//sslCtx.SetMode(ReleaseBuffers)
 
-		if err := cert.SetIssuer(idcert); err != nil {
-			return nil, err
-		}
-		if err := cert.Sign(identityPk, openssl.EVP_SHA1); err != nil {
-			return nil, err
-		}
+		// Avoid reusing DH keys if we don't have to
+		sslCtx.SetOptions(SingleDHUse | SingleECDHUse)
 
-		if err := idcert.SetIssuer(idcert); err != nil {
-			return nil, err
-		}
-		if err := idcert.Sign(identityPk, openssl.EVP_SHA1); err != nil {
-			return nil, err
-		}
+		// Never renegotiate.
+		sslCtx.SetOptions(NoSessionResumptionOrRenegotiation)
 
-		if err := authcert.SetIssuer(idcert); err != nil {
-			return nil, err
-		}
-		if err := authcert.Sign(identityPk, openssl.EVP_SHA1); err != nil {
-			return nil, err
-		}
+		// All compression does with encrypted data is waste CPU cycles. Disable it
+		sslCtx.SetOptions(NoCompression)
 
-		sslCtx.UseCertificate(cert)
-		sslCtx.UsePrivateKey(tmpPk)
+		// Disable session caching
+		sslCtx.SetSessionCacheMode(SessionCacheOff)
 
-		sslCtx.SetEllipticCurve(openssl.Prime256v1)
+		// Allow all peer certificates
+		sslCtx.SetVerify(VerifyNone, nil)
 
-		tls.LinkCert = cert
-		tls.LinkKey = tmpPk
-		tls.LinkCertDER, err = cert.MarshalDER()
-		if err != nil {
-			return nil, err
-		}
-
-		tls.IdCert = idcert
-		tls.IdKey = identityPk
-		tls.IdCertDER, err = idcert.MarshalDER()
-		if err != nil {
-			return nil, err
-		}
-
-		keyDer, _ := identityPk.MarshalPKCS1PublicKeyDER()
-		fingerprint := sha1.Sum(keyDer)
-		log.Printf("Our fingerprint is %X\n", fingerprint)
-		copy(tls.Fingerprint[:], fingerprint[:])
-
-		{
-			sha := sha256.New()
-			sha.Write(keyDer)
-			tls.Fingerprint256 = sha.Sum(nil)
-		}
-
-		tls.AuthCert = authcert
-		tls.AuthKey = authPk
-		tls.AuthCertDER, err = authcert.MarshalDER()
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	// We don't want SSLv2 or SSLv3
-	sslCtx.SetOptions(openssl.NoSSLv2 | openssl.NoSSLv3)
-
-	// Prefer the server's ordering of ciphers: the client's ordering has
-	// historically been chosen for fingerprinting resistance.
-	sslCtx.SetOptions(openssl.CipherServerPreference)
-
-	//XXX: panic() if we don't have openssl of 1.0.1e or later
-	//XXX: please remember me why...
-
-	// Tickets hurt perfect forward secrecy, but we still have non-server clients announce them, to reduce fingerprinting impact
-	if !isClient {
-		sslCtx.SetOptions(openssl.NoTicket)
-	}
-
-	// This saves us quite some memory
-	//sslCtx.SetMode(openssl.ReleaseBuffers)
-
-	// Avoid reusing DH keys if we don't have to
-	sslCtx.SetOptions(openssl.SingleDHUse | openssl.SingleECDHUse)
-
-	// Never renegotiate.
-	sslCtx.SetOptions(openssl.NoSessionResumptionOrRenegotiation)
-
-	// All compression does with encrypted data is waste CPU cycles. Disable it
-	sslCtx.SetOptions(openssl.NoCompression)
-
-	// Disable session caching
-	sslCtx.SetSessionCacheMode(openssl.SessionCacheOff)
-
-	// Allow all peer certificates
-	sslCtx.SetVerify(openssl.VerifyNone, nil)
-
-	return tls, nil
+		return tls, nil
+	*/
 }
 
 func (or *ORCtx) GetTLSCtx(isClient bool) *TorTLS {
@@ -225,22 +227,26 @@ func SetupTLS(or *ORCtx) error {
 	return nil
 }
 
-func (or *ORCtx) WrapTLS(conn net.Conn, isClient bool) (*openssl.Conn, *TorTLS, error) {
-	tls := or.GetTLSCtx(isClient)
+func (or *ORCtx) WrapTLS(conn net.Conn, isClient bool) (*tls.Conn, *TorTLS, error) {
+	panic("not implemented")
+	return nil, nil, fmt.Errorf("not implemented")
+	/*
+		tls := or.GetTLSCtx(isClient)
 
-	var tlsConn *openssl.Conn
-	var err error
-	if isClient {
-		tlsConn, err = openssl.Client(conn, tls.ctx)
-	} else {
-		tlsConn, err = openssl.Server(conn, tls.ctx)
-	}
+		var tlsConn *Conn
+		var err error
+		if isClient {
+			tlsConn, err = Client(conn, tls.ctx)
+		} else {
+			tlsConn, err = Server(conn, tls.ctx)
+		}
 
-	if err != nil {
-		return nil, nil, err
-	}
+		if err != nil {
+			return nil, nil, err
+		}
 
-	return tlsConn, tls, nil
+		return tlsConn, tls, nil
+	*/
 }
 
 func RandomHostname(minLen, maxLen int, prefix, suffix string) string {

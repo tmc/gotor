@@ -6,11 +6,14 @@ package main
 
 import (
 	"bytes"
+	"crypto"
 	"crypto/hmac"
+	"crypto/rsa"
 	"crypto/sha1"
 	"crypto/sha256"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
-	"github.com/tvdw/openssl"
 	"hash"
 	"io"
 	"net"
@@ -71,7 +74,7 @@ func (c *OnionConnection) negotiateVersionServer(conn io.Reader) error {
 	}
 
 	if bestVersion == 0 {
-		ssl := conn.(*openssl.Conn)
+		ssl := conn.(*tls.Conn)
 		Log(LOG_INFO, "unknown versions data: %v %v", buf, ssl.RemoteAddr())
 		return errors.New("Failed to negotiate a version")
 	}
@@ -241,7 +244,7 @@ func (c *OnionConnection) sendAuthChallenge() error {
 	return nil
 }
 
-func (c *OnionConnection) handleAuthChallenge(cell Cell, hashInbound, hashOutbound hash.Hash, conn *openssl.Conn) error {
+func (c *OnionConnection) handleAuthChallenge(cell Cell, hashInbound, hashOutbound hash.Hash, conn *tls.Conn) error {
 	if c.weAuthenticated {
 		return errors.New("But we already authenticated...")
 	}
@@ -288,19 +291,17 @@ func (c *OnionConnection) handleAuthChallenge(cell Cell, hashInbound, hashOutbou
 	buf.Write(hashInbound.Sum(nil))
 	buf.Write(hashOutbound.Sum(nil))
 
-	theirCert, err := conn.PeerCertificate()
+	theirCert := conn.ConnectionState().PeerCertificates[0]
+	var err error
 	if err != nil {
 		return err
 	}
-	DER, err := theirCert.MarshalDER()
-	if err != nil {
-		return err
-	}
+	DER := theirCert.Raw
 	sha.Write(DER)
 	buf.Write(sha.Sum(nil))
 
-	mac := hmac.New(sha256.New, conn.GetTLSSecret())
-	mac.Write(conn.GetClientServerHelloRandom())
+	mac := hmac.New(sha256.New, conn.ConnectionState().TLSUnique)
+	// TODO(tmc): fixme //mac.Write(conn.GetClientServerHelloRandom())
 	mac.Write([]byte("Tor V3 handshake TLS cross-certification\x00"))
 	buf.Write(mac.Sum(nil))
 
@@ -313,7 +314,7 @@ func (c *OnionConnection) handleAuthChallenge(cell Cell, hashInbound, hashOutbou
 	sha.Reset()
 	sha.Write(buf.Bytes()[4:])
 	digest := sha.Sum(nil)
-	sig, err := c.usedTLSCtx.AuthKey.PrivateEncrypt(digest[:])
+	sig, err := rsa.SignPKCS1v15(nil, c.usedTLSCtx.AuthKey, crypto.Hash(0), digest[:])
 	if err != nil {
 		return err
 	}
@@ -327,7 +328,7 @@ func (c *OnionConnection) handleAuthChallenge(cell Cell, hashInbound, hashOutbou
 	return nil
 }
 
-func (c *OnionConnection) handleCerts(cell Cell, cert *openssl.Certificate) error {
+func (c *OnionConnection) handleCerts(cell Cell, cert *x509.Certificate) error {
 	data := cell.Data()
 	if len(data) < 3 {
 		return errors.New("way too short")
@@ -360,21 +361,18 @@ func (c *OnionConnection) handleCerts(cell Cell, cert *openssl.Certificate) erro
 			return errors.New("malformed CERTS")
 		}
 
-		theCert, err := openssl.LoadCertificateFromDER(data[readPos : readPos+length])
+		parsed, err := x509.ParsePKIXPublicKey(data[readPos : readPos+length])
 		if err != nil {
 			return err
 		}
+		theCert := parsed.(*rsa.PublicKey)
 
 		// XXX todo: lots of checks
 
 		if cType == 2 { // ID
 			// Find the fingerprint
-			pubkey, err := theCert.PublicKey()
-			if err != nil {
-				return err
-			}
 
-			keyDer, err := pubkey.MarshalPKCS1PublicKeyDER()
+			keyDer, err := x509.MarshalPKIXPublicKey(theCert)
 			if err != nil {
 				return err
 			}

@@ -161,7 +161,7 @@ handshake:
 			}
 
 		case CMD_CERTS:
-			peerCert, err := tlsConn.PeerCertificate()
+			peerCert := tlsConn.ConnectionState().PeerCertificates[0]
 			if err = me.handleCerts(cell, peerCert); err != nil {
 				Log(LOG_INFO, "%s", err)
 				return

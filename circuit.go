@@ -5,9 +5,9 @@
 package main
 
 import (
-	"github.com/tvdw/gotor/aes"
-	"github.com/tvdw/gotor/sha1"
 	"sync"
+
+	"github.com/tvdw/gotor/sha1"
 )
 
 type CircuitID uint32
@@ -28,8 +28,12 @@ func (id CircuitID) MSB(vers LinkVersion) bool {
 	}
 }
 
+type Cipher interface {
+	Crypt(source, target []byte) ([]byte, error)
+}
+
 type DirectionalCircuitState struct {
-	cipher aes.Cipher
+	cipher Cipher
 	digest *sha1.Digest
 }
 
@@ -110,8 +114,10 @@ func NewCircuit(id CircuitID, fSeed, bSeed, fKey, bKey []byte) *Circuit {
 
 	StatsNewCircuit()
 
-	aes_fwd := aes.New(fKey, zeroIv[:])
-	aes_rev := aes.New(bKey, zeroIv[:])
+	//aes_fwd := aes.New(fKey, zeroIv[:])
+	//aes_rev := aes.New(bKey, zeroIv[:])
+	var aes_fwd Cipher
+	var aes_rev Cipher
 
 	dig_fwd := sha1.New()
 	dig_fwd.Write(fSeed)

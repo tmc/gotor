@@ -6,18 +6,26 @@ package tordir
 
 import (
 	"bytes"
+	"crypto"
+	"crypto/rsa"
 	"crypto/sha1"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/pem"
 	"errors"
 	"fmt"
-	"github.com/tvdw/openssl"
 	"log"
 	"net"
 	"net/http"
 	"strings"
 	"time"
 )
+
+type PrivateKey interface {
+	MarshalPKCS1PublicKeyDER() ([]byte, error)
+	MarshalPKCS1PublicKeyPEM() ([]byte, error)
+	PrivateEncrypt([]byte) ([]byte, error)
+}
 
 type Descriptor struct {
 	// Router definition
@@ -33,7 +41,7 @@ type Descriptor struct {
 	Hibernating                                     bool
 	UptimeStart                                     time.Time
 	NTORKey                                         []byte
-	SigningKey, OnionKey                            openssl.PrivateKey
+	SigningKey, OnionKey                            *rsa.PrivateKey
 	Accept, Reject, IPv6Policy                      string
 	Contact                                         string
 	Family                                          []string
@@ -85,7 +93,7 @@ func (d *Descriptor) SignedDescriptor() (string, error) {
 
 	published := time.Now()
 
-	keyDer, _ := d.SigningKey.MarshalPKCS1PublicKeyDER()
+	keyDer := x509.MarshalPKCS1PrivateKey(d.SigningKey)
 	fingerprint := sha1.Sum(keyDer)
 	fp := fmt.Sprintf("%X %X %X %X %X %X %X %X %X %X",
 		fingerprint[0:2], fingerprint[2:4], fingerprint[4:6], fingerprint[6:8], fingerprint[8:10],
@@ -108,7 +116,14 @@ func (d *Descriptor) SignedDescriptor() (string, error) {
 	extraDigest := sha1.Sum(extra.Bytes())
 	buf.WriteString(fmt.Sprintf("extra-info-digest %X\n", extraDigest[:]))
 	buf.WriteString(fmt.Sprintf("onion-key\n"))
-	onion, err := d.OnionKey.MarshalPKCS1PublicKeyPEM()
+	der, err := x509.MarshalPKIXPublicKey(d.OnionKey)
+	if err != nil {
+		return "", err
+	}
+	onion := pem.EncodeToMemory(&pem.Block{
+		Type:  "RSA PUBLIC KEY",
+		Bytes: der,
+	})
 	if err != nil {
 		return "", err
 	}
@@ -116,7 +131,14 @@ func (d *Descriptor) SignedDescriptor() (string, error) {
 
 	buf.WriteString(fmt.Sprintf("signing-key\n"))
 
-	pub, err := d.SigningKey.MarshalPKCS1PublicKeyPEM()
+	der, err = x509.MarshalPKIXPublicKey(d.SigningKey)
+	if err != nil {
+		return "", err
+	}
+	pub := pem.EncodeToMemory(&pem.Block{
+		Type:  "RSA PUBLIC KEY",
+		Bytes: der,
+	})
 	if err != nil {
 		return "", err
 	}
@@ -144,7 +166,7 @@ func (d *Descriptor) SignedDescriptor() (string, error) {
 	digest := sha1.Sum(buf.Bytes())
 
 	// Sign descriptor
-	signature, err := d.SigningKey.PrivateEncrypt(digest[:])
+	signature, err := rsa.SignPKCS1v15(nil, d.SigningKey, crypto.Hash(0), digest[:])
 	if err != nil {
 		return "", err
 	}
@@ -154,7 +176,7 @@ func (d *Descriptor) SignedDescriptor() (string, error) {
 	})
 
 	// Sign extrainfo
-	signature, err = d.SigningKey.PrivateEncrypt(digest[:])
+	signature, err = rsa.SignPKCS1v15(nil, d.SigningKey, crypto.Hash(0), digest[:])
 	if err != nil {
 		return "", err
 	}

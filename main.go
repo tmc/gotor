@@ -5,7 +5,6 @@
 package main
 
 import (
-	"github.com/tvdw/cgolock"
 	"log"
 	"net/http"
 	"os"
@@ -17,7 +16,6 @@ import _ "net/http/pprof"
 import _ "expvar"
 
 func main() {
-	cgolock.Init(runtime.NumCPU())
 	runtime.GOMAXPROCS(runtime.NumCPU())
 	SetupRand()
 	SeedCellBuf()

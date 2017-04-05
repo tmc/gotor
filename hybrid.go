@@ -5,14 +5,14 @@
 package main
 
 import (
-	"github.com/tvdw/gotor/aes"
-	"github.com/tvdw/openssl"
+	"crypto/aes"
+	"crypto/rsa"
 )
 
-func HybridDecrypt(priv openssl.PrivateKey, d []byte) ([]byte, error) {
+func HybridDecrypt(priv *rsa.PrivateKey, d []byte) ([]byte, error) {
 	// XXX this could probably be optimized a little
 
-	res, err := priv.Decrypt(d[0:128])
+	res, err := priv.Decrypt(nil, d[0:128], nil)
 	if err != nil {
 		return nil, err
 	}
@@ -22,13 +22,13 @@ func HybridDecrypt(priv openssl.PrivateKey, d []byte) ([]byte, error) {
 	}
 
 	data1 := res[16:86]
-	aes := aes.New(res[0:16], make([]byte, 16))
-
-	res2 := make([]byte, len(d)-128)
-	res2, err = aes.Crypt(d[128:len(d)], res2)
+	aesCipher, err := aes.NewCipher(res[0:16])
 	if err != nil {
 		return nil, err
 	}
+
+	res2 := make([]byte, len(d)-128)
+	aesCipher.Encrypt(res2, d[128:len(d)])
 
 	finalRes := make([]byte, len(data1)+len(res2))
 	copy(finalRes, data1)

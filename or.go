@@ -6,16 +6,19 @@ package main
 
 import (
 	"bytes"
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/pem"
 	"errors"
 	"fmt"
-	"github.com/tvdw/gotor/tordir"
-	"github.com/tvdw/openssl"
-	"golang.org/x/crypto/curve25519"
 	"io/ioutil"
 	"net"
 	"os"
 	"sync"
 	"time"
+
+	"github.com/tvdw/gotor/tordir"
+	"golang.org/x/crypto/curve25519"
 )
 
 type Fingerprint [20]byte
@@ -36,7 +39,7 @@ type ORCtx struct {
 
 	descriptor tordir.Descriptor
 
-	identityKey, onionKey   openssl.PrivateKey
+	identityKey, onionKey   *rsa.PrivateKey
 	ntorPrivate, ntorPublic [32]byte
 
 	clientTlsCtx, serverTlsCtx *TorTLS
@@ -62,28 +65,37 @@ func NewOR(torConf *Config) (*ORCtx, error) {
 		os.Mkdir(torConf.DataDirectory+"/keys", 0700)
 
 		{
-			newIDKey, err := openssl.GenerateRSAKeyWithExponent(1024, 65537)
+			newIDKey, err := GenerateRSAKeyWithExponent(1024, 65537)
 			if err != nil {
 				return nil, err
 			}
-			newIDKeyPEM, err := newIDKey.MarshalPKCS1PrivateKeyPEM()
+
+			der, err := x509.MarshalPKIXPublicKey(newIDKey)
 			if err != nil {
 				return nil, err
 			}
+			newIDKeyPEM := pem.EncodeToMemory(&pem.Block{
+				Type:  "RSA PRIVATE KEY",
+				Bytes: der,
+			})
 			if err := ioutil.WriteFile(torConf.DataDirectory+"/keys/secret_id_key", newIDKeyPEM, 0600); err != nil {
 				return nil, err
 			}
 		}
 
 		{
-			newOnionKey, err := openssl.GenerateRSAKeyWithExponent(1024, 65537)
+			newOnionKey, err := GenerateRSAKeyWithExponent(1024, 65537)
 			if err != nil {
 				return nil, err
 			}
-			newOnionKeyPEM, err := newOnionKey.MarshalPKCS1PrivateKeyPEM()
+			der, err := x509.MarshalPKIXPublicKey(newOnionKey)
 			if err != nil {
 				return nil, err
 			}
+			newOnionKeyPEM := pem.EncodeToMemory(&pem.Block{
+				Type:  "RSA PRIVATE KEY",
+				Bytes: der,
+			})
 			if err := ioutil.WriteFile(torConf.DataDirectory+"/keys/secret_onion_key", newOnionKeyPEM, 0600); err != nil {
 				return nil, err
 			}
@@ -116,22 +128,20 @@ func NewOR(torConf *Config) (*ORCtx, error) {
 		if err != nil {
 			return nil, err
 		}
-		identityPk, err := openssl.LoadPrivateKeyFromPEM(identityPem)
+		ctx.identityKey, err = x509.ParsePKCS1PrivateKey(identityPem)
 		if err != nil {
 			return nil, err
 		}
-		ctx.identityKey = identityPk
 	}
 	{
 		onionPem, err := ioutil.ReadFile(torConf.DataDirectory + "/keys/secret_onion_key")
 		if err != nil {
 			return nil, err
 		}
-		onionPk, err := openssl.LoadPrivateKeyFromPEM(onionPem)
+		ctx.onionKey, err = x509.ParsePKCS1PrivateKey(onionPem)
 		if err != nil {
 			return nil, err
 		}
-		ctx.onionKey = onionPk
 	}
 	{
 		ntorData, err := ioutil.ReadFile(torConf.DataDirectory + "/keys/secret_onion_key_ntor")
