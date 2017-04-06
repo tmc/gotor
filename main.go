@@ -21,7 +21,7 @@ func main() {
 	SeedCellBuf()
 
 	torConfig := Config{
-		IsPublicServer:    true,
+		IsPublicServer:    false,
 		Platform:          "Tor 0.2.6.2-alpha on Go",
 		BandwidthAvg:      1073741824,
 		BandwidthBurst:    1073741824,
@@ -50,6 +50,7 @@ func main() {
 
 	anythingFinished := make(chan int)
 	go func() {
+		time.Sleep(time.Second * 5)
 		or.Run()
 		anythingFinished <- 1
 	}()
@@ -57,19 +58,24 @@ func main() {
 		Log(LOG_WARN, "%v", http.ListenAndServe("localhost:6060", nil))
 	}()
 
+	log.Println("publishing")
 	or.PublishDescriptor()
+	log.Println("don publishing")
 
 	nextRotate := time.After(time.Hour * 1)
 	nextPublish := time.After(time.Hour * 18)
+	time.Sleep(time.Second)
 	for {
 		select {
 		case <-nextRotate: //XXX randomer intervals
 			if err := or.RotateKeys(); err != nil {
+				log.Println("got nextrotate", err)
 				Log(LOG_WARN, "%v", err)
 			}
 			nextRotate = time.After(time.Hour * 1)
 
 		case <-nextPublish:
+			log.Println("got nextPublish")
 			or.PublishDescriptor()
 			nextPublish = time.After(time.Hour * 18)
 

@@ -9,7 +9,7 @@ import (
 	"log"
 )
 
-const debugLevel = LOG_NOTICE
+const debugLevel = LOG_DEBUG
 
 const (
 	LOG_DEBUG  = 6

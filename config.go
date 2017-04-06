@@ -13,6 +13,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/kr/pretty"
 )
 
 type Config struct {
@@ -150,6 +152,7 @@ func (c *Config) ReadFile(filename string) error {
 			log.Printf("Configuration option %q not recognized. Ignoring its value\n", matches[1])
 		}
 	}
+	pretty.Println(c)
 
 	return nil
 }

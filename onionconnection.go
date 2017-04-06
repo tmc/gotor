@@ -7,6 +7,7 @@ package main
 import (
 	"crypto/sha256"
 	"io"
+	"log"
 	"net"
 )
 
@@ -203,6 +204,7 @@ func HandleORConnServer(or *ORCtx, conn net.Conn) {
 	go me.writer(tlsConn)
 
 	if err := me.negotiateVersionServer(tlsConn); err != nil {
+		log.Println("issue negotiontgadf", err)
 		Log(LOG_INFO, "%s", err)
 		return
 	}

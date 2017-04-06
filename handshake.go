@@ -16,6 +16,7 @@ import (
 	"errors"
 	"hash"
 	"io"
+	"log"
 	"net"
 	"time"
 )
@@ -245,6 +246,7 @@ func (c *OnionConnection) sendAuthChallenge() error {
 }
 
 func (c *OnionConnection) handleAuthChallenge(cell Cell, hashInbound, hashOutbound hash.Hash, conn *tls.Conn) error {
+	log.Println("hAC")
 	if c.weAuthenticated {
 		return errors.New("But we already authenticated...")
 	}

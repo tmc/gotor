@@ -13,7 +13,6 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/base32"
-	"fmt"
 	"log"
 	"math/big"
 	"math/rand"
@@ -233,11 +232,12 @@ func SetupTLS(or *ORCtx) error {
 }
 
 func (or *ORCtx) WrapTLS(conn net.Conn, isClient bool) (*tls.Conn, *TorTLS, error) {
-	panic("not implemented")
-	return nil, nil, fmt.Errorf("not implemented")
-	/*
-		tls := or.GetTLSCtx(isClient)
+	return tls.Server(conn, &tls.Config{
+		Certificates:       []tls.Certificate{or.serverTlsCtx.AuthCert},
+		InsecureSkipVerify: true,
+	}), or.GetTLSCtx(isClient), nil
 
+	/*
 		var tlsConn *Conn
 		var err error
 		if isClient {

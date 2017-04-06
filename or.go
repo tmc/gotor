@@ -200,6 +200,7 @@ func (or *ORCtx) UpdateDescriptor() {
 
 func (or *ORCtx) PublishDescriptor() error {
 	if or.config.IsPublicServer {
+		log.Println("got public")
 		or.UpdateDescriptor()
 		authorities := []string{"171.25.193.9:443", "86.59.21.38:80", "208.83.223.34:443", "199.254.238.52:80", "194.109.206.212:80", "131.188.40.189:80", "128.31.0.34:9131", "193.23.244.244:80", "154.35.32.5:80"}
 		for _, auth := range authorities {
