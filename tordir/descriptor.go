@@ -19,6 +19,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/davecgh/go-spew/spew"
 )
 
 type PrivateKey interface {
@@ -58,6 +60,7 @@ type Descriptor struct {
 }
 
 func (d *Descriptor) Validate() error {
+	spew.Dump(d)
 	if d.Nickname == "" {
 		return errors.New("Nickname is required")
 	}

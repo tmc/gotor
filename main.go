@@ -26,6 +26,7 @@ func main() {
 		BandwidthAvg:      1073741824,
 		BandwidthBurst:    1073741824,
 		BandwidthObserved: 1 << 16,
+		DataDirectory:     ".",
 	}
 	if err := torConfig.ReadFile(os.Args[1]); err != nil {
 		log.Panicln(err)

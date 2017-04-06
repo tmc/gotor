@@ -1,8 +1,10 @@
 package main
 
 import (
+	"crypto/rand"
 	"crypto/rsa"
 	"fmt"
+	"log"
 )
 
 type PrivateKey *rsa.PrivateKey
@@ -33,6 +35,6 @@ func GenerateRSAKey(bits int) (*rsa.PrivateKey, error) {
 	return nil, fmt.Errorf("not implemented")
 }
 func GenerateRSAKeyWithExponent(bits int, exponent uint) (*rsa.PrivateKey, error) {
-	panic("not implemented")
-	return nil, fmt.Errorf("not implemented")
+	log.Println("replaceme")
+	return rsa.GenerateKey(rand.Reader, bits)
 }

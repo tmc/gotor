@@ -5,13 +5,21 @@
 package main
 
 import (
+	crand "crypto/rand"
+	"crypto/rsa"
+	"crypto/sha1"
+	"crypto/sha256"
 	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/base32"
 	"fmt"
 	"log"
+	"math/big"
 	"math/rand"
 	"net"
 	"strings"
+	"time"
 )
 
 const SSLRecordSize = 16 * 1024
@@ -19,8 +27,8 @@ const SSLRecordSize = 16 * 1024
 type TorTLS struct {
 	ctx *Ctx
 
-	LinkKey, IdKey, AuthKey             PrivateKey
-	LinkCert, IdCert, AuthCert          *Certificate
+	LinkKey, IdKey, AuthKey             *rsa.PrivateKey
+	LinkCert, IdCert, AuthCert          *x509.Certificate
 	LinkCertDER, IdCertDER, AuthCertDER []byte
 	Fingerprint                         Fingerprint
 	Fingerprint256                      []byte
@@ -28,129 +36,126 @@ type TorTLS struct {
 
 func NewTLSCtx(isClient bool, or *ORCtx) (*TorTLS, error) {
 	log.Printf("Creating TLS context with isClient=%v\n", isClient)
-	panic("not implemented")
-	return nil, fmt.Errorf("not implemented")
 
-	/*
-		sslCtx, err := NewCtxWithVersion(AnyVersion)
+	ttls := &TorTLS{}
+
+	// Considering how important this piece of code is for resisting fingerprints, we just follow whatever Tor itself does
+
+	if !isClient { // XXX simplify
+		nickname1 := RandomHostname(8, 20, "www.", ".net")
+		nickname2 := RandomHostname(8, 20, "www.", ".com")
+
+		issued, _ := time.ParseDuration("-24h") // XXX check what tor does (some time ago, then a long-time cert)
+		expires, _ := time.ParseDuration("24h") // XXX also, don't re-use for all certs
+
+		tmpPk, err := GenerateRSAKeyWithExponent(1024, 65537)
 		if err != nil {
 			return nil, err
 		}
 
-		tls := &TorTLS{
-			ctx: sslCtx,
+		authPk, err := GenerateRSAKeyWithExponent(1024, 65537)
+		if err != nil {
+			return nil, err
 		}
 
-		// Considering how important this piece of code is for resisting fingerprints, we just follow whatever Tor itself does
-
-		if !isClient { // XXX simplify
-			nickname1 := RandomHostname(8, 20, "www.", ".net")
-			nickname2 := RandomHostname(8, 20, "www.", ".com")
-
-			issued, _ := time.ParseDuration("-24h") // XXX check what tor does (some time ago, then a long-time cert)
-			expires, _ := time.ParseDuration("24h") // XXX also, don't re-use for all certs
-
-			tmpPk, err := GenerateRSAKeyWithExponent(1024, 65537)
-			if err != nil {
-				return nil, err
-			}
-
-			authPk, err := GenerateRSAKeyWithExponent(1024, 65537)
-			if err != nil {
-				return nil, err
-			}
-
-			cert, err := NewCertificate(&CertificateInfo{
-				CommonName: nickname1,
-				Serial:     rand.Int63(),
-				Issued:     issued,
-				Expires:    expires,
-			}, tmpPk)
-			if err != nil {
-				return nil, err
-			}
-
-			identityPk := or.identityKey
-
-			idcert, err := NewCertificate(&CertificateInfo{
+		identityPk := or.identityKey
+		idcert := &x509.Certificate{
+			Subject: pkix.Name{
 				CommonName: nickname2,
-				Serial:     rand.Int63(),
-				Issued:     issued,
-				Expires:    expires,
-			}, identityPk)
-			if err != nil {
-				return nil, err
-			}
+			},
+			Issuer: pkix.Name{
+				CommonName: nickname2,
+			},
+			SerialNumber: big.NewInt(rand.Int63()),
+			NotBefore:    time.Now().Add(issued),
+			NotAfter:     time.Now().Add(expires),
+			PublicKey:    identityPk.Public(),
+		}
+		authcert := &x509.Certificate{
+			Subject: pkix.Name{
+				CommonName: nickname2,
+			},
+			Issuer: pkix.Name{
+				CommonName: nickname2,
+			},
+			SerialNumber: big.NewInt(rand.Int63()),
+			NotBefore:    time.Now().Add(issued),
+			NotAfter:     time.Now().Add(expires),
+			PublicKey:    authPk.Public(),
+		}
 
-			authcert, err := NewCertificate(&CertificateInfo{
+		cert := &x509.Certificate{
+			Subject: pkix.Name{
 				CommonName: nickname1,
-				Serial:     rand.Int63(),
-				Issued:     issued,
-				Expires:    expires,
-			}, authPk)
-			if err != nil {
-				return nil, err
-			}
+			},
+			Issuer: pkix.Name{
+				CommonName: nickname2,
+			},
+			SerialNumber: big.NewInt(rand.Int63()),
+			NotBefore:    time.Now().Add(issued),
+			NotAfter:     time.Now().Add(expires),
+			PublicKey:    tmpPk.Public(),
+		}
 
-			if err := cert.SetIssuer(idcert); err != nil {
-				return nil, err
-			}
+		/*
+			TODO: tmc replicate this
 			if err := cert.Sign(identityPk, EVP_SHA1); err != nil {
 				return nil, err
 			}
 
-			if err := idcert.SetIssuer(idcert); err != nil {
-				return nil, err
-			}
 			if err := idcert.Sign(identityPk, EVP_SHA1); err != nil {
 				return nil, err
 			}
 
-			if err := authcert.SetIssuer(idcert); err != nil {
-				return nil, err
-			}
 			if err := authcert.Sign(identityPk, EVP_SHA1); err != nil {
 				return nil, err
 			}
+		*/
 
+		/*
 			sslCtx.UseCertificate(cert)
 			sslCtx.UsePrivateKey(tmpPk)
 
 			sslCtx.SetEllipticCurve(Prime256v1)
+		*/
 
-			tls.LinkCert = cert
-			tls.LinkKey = tmpPk
-			tls.LinkCertDER, err = cert.MarshalDER()
-			if err != nil {
-				return nil, err
-			}
-
-			tls.IdCert = idcert
-			tls.IdKey = identityPk
-			tls.IdCertDER, err = idcert.MarshalDER()
-			if err != nil {
-				return nil, err
-			}
-
-			keyDer, _ := identityPk.MarshalPKCS1PublicKeyDER()
-			fingerprint := sha1.Sum(keyDer)
-			log.Printf("Our fingerprint is %X\n", fingerprint)
-			copy(tls.Fingerprint[:], fingerprint[:])
-
-			{
-				sha := sha256.New()
-				sha.Write(keyDer)
-				tls.Fingerprint256 = sha.Sum(nil)
-			}
-
-			tls.AuthCert = authcert
-			tls.AuthKey = authPk
-			tls.AuthCertDER, err = authcert.MarshalDER()
-			if err != nil {
-				return nil, err
-			}
+		ttls.LinkCert = cert
+		ttls.LinkKey = tmpPk
+		ttls.LinkCertDER, err = x509.CreateCertificate(crand.Reader, cert, cert, tmpPk.Public(), tmpPk)
+		if err != nil {
+			return nil, err
 		}
 
+		ttls.IdCert = idcert
+		ttls.IdKey = identityPk
+		ttls.IdCertDER, err = x509.CreateCertificate(crand.Reader, idcert, idcert, identityPk.Public(), identityPk)
+		if err != nil {
+			return nil, err
+		}
+
+		keyDer, err := x509.MarshalPKIXPublicKey(identityPk.Public())
+		if err != nil {
+			return nil, err
+		}
+		fingerprint := sha1.Sum(keyDer)
+		log.Printf("Our fingerprint is %X\n", fingerprint)
+		copy(ttls.Fingerprint[:], fingerprint[:])
+
+		{
+			sha := sha256.New()
+			sha.Write(keyDer)
+			ttls.Fingerprint256 = sha.Sum(nil)
+		}
+
+		ttls.AuthCert = authcert
+		ttls.AuthKey = authPk
+		ttls.AuthCertDER, err = x509.CreateCertificate(crand.Reader, authcert, authcert, authPk.Public(), authPk)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	/*
 		// We don't want SSLv2 or SSLv3
 		sslCtx.SetOptions(NoSSLv2 | NoSSLv3)
 
@@ -183,9 +188,9 @@ func NewTLSCtx(isClient bool, or *ORCtx) (*TorTLS, error) {
 
 		// Allow all peer certificates
 		sslCtx.SetVerify(VerifyNone, nil)
-
-		return tls, nil
 	*/
+
+	return ttls, nil
 }
 
 func (or *ORCtx) GetTLSCtx(isClient bool) *TorTLS {

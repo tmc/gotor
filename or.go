@@ -9,13 +9,15 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/pem"
-	"errors"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"net"
 	"os"
 	"sync"
 	"time"
+
+	"github.com/pkg/errors"
 
 	"github.com/tvdw/gotor/tordir"
 	"golang.org/x/crypto/curve25519"
@@ -67,18 +69,16 @@ func NewOR(torConf *Config) (*ORCtx, error) {
 		{
 			newIDKey, err := GenerateRSAKeyWithExponent(1024, 65537)
 			if err != nil {
-				return nil, err
+				return nil, errors.Wrap(err, "rsa keygen")
 			}
 
-			der, err := x509.MarshalPKIXPublicKey(newIDKey)
-			if err != nil {
-				return nil, err
-			}
+			der := x509.MarshalPKCS1PrivateKey(newIDKey)
 			newIDKeyPEM := pem.EncodeToMemory(&pem.Block{
 				Type:  "RSA PRIVATE KEY",
 				Bytes: der,
 			})
 			if err := ioutil.WriteFile(torConf.DataDirectory+"/keys/secret_id_key", newIDKeyPEM, 0600); err != nil {
+				panic(err)
 				return nil, err
 			}
 		}
@@ -86,12 +86,10 @@ func NewOR(torConf *Config) (*ORCtx, error) {
 		{
 			newOnionKey, err := GenerateRSAKeyWithExponent(1024, 65537)
 			if err != nil {
+				panic(err)
 				return nil, err
 			}
-			der, err := x509.MarshalPKIXPublicKey(newOnionKey)
-			if err != nil {
-				return nil, err
-			}
+			der := x509.MarshalPKCS1PrivateKey(newOnionKey)
 			newOnionKeyPEM := pem.EncodeToMemory(&pem.Block{
 				Type:  "RSA PRIVATE KEY",
 				Bytes: der,
@@ -128,7 +126,8 @@ func NewOR(torConf *Config) (*ORCtx, error) {
 		if err != nil {
 			return nil, err
 		}
-		ctx.identityKey, err = x509.ParsePKCS1PrivateKey(identityPem)
+		pemBlock, _ := pem.Decode(identityPem)
+		ctx.identityKey, err = x509.ParsePKCS1PrivateKey(pemBlock.Bytes)
 		if err != nil {
 			return nil, err
 		}
@@ -138,7 +137,8 @@ func NewOR(torConf *Config) (*ORCtx, error) {
 		if err != nil {
 			return nil, err
 		}
-		ctx.onionKey, err = x509.ParsePKCS1PrivateKey(onionPem)
+		pemBlock, _ := pem.Decode(onionPem)
+		ctx.onionKey, err = x509.ParsePKCS1PrivateKey(pemBlock.Bytes)
 		if err != nil {
 			return nil, err
 		}
@@ -214,6 +214,7 @@ func (or *ORCtx) PublishDescriptor() error {
 func (or *ORCtx) Run() {
 	for {
 		conn, err := or.listener.Accept()
+		log.Println("ACCEPTED!")
 		if err != nil {
 			Log(LOG_WARN, "%s", err)
 			continue
