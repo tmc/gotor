@@ -9,16 +9,18 @@ import (
 	"crypto"
 	"crypto/rsa"
 	"crypto/sha1"
-	"crypto/x509"
+	"encoding/asn1"
 	"encoding/base64"
 	"encoding/pem"
-	"errors"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"net"
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/pkg/errors"
 )
 
 type PrivateKey interface {
@@ -88,13 +90,16 @@ func (d *Descriptor) Validate() error {
 func (d *Descriptor) SignedDescriptor() (string, error) {
 	var buf, extra bytes.Buffer
 	if err := d.Validate(); err != nil {
-		return "", err
+		return "", errors.Wrap(err, "Validate")
 	}
 
 	published := time.Now()
 
-	keyDer := x509.MarshalPKCS1PrivateKey(d.SigningKey)
-	fingerprint := sha1.Sum(keyDer)
+	keyAsn, err := asn1.Marshal(d.SigningKey.PublicKey)
+	if err != nil {
+		return "", err
+	}
+	fingerprint := sha1.Sum(keyAsn)
 	fp := fmt.Sprintf("%X %X %X %X %X %X %X %X %X %X",
 		fingerprint[0:2], fingerprint[2:4], fingerprint[4:6], fingerprint[6:8], fingerprint[8:10],
 		fingerprint[10:12], fingerprint[12:14], fingerprint[14:16], fingerprint[16:18], fingerprint[18:20],
@@ -116,33 +121,27 @@ func (d *Descriptor) SignedDescriptor() (string, error) {
 	extraDigest := sha1.Sum(extra.Bytes())
 	buf.WriteString(fmt.Sprintf("extra-info-digest %X\n", extraDigest[:]))
 	buf.WriteString(fmt.Sprintf("onion-key\n"))
-	der, err := x509.MarshalPKIXPublicKey(d.OnionKey)
+
+	pemBlock := &pem.Block{
+		Type: "RSA PUBLIC KEY",
+	}
+	pemBlock.Bytes, err = asn1.Marshal(d.OnionKey.PublicKey)
 	if err != nil {
 		return "", err
 	}
-	onion := pem.EncodeToMemory(&pem.Block{
-		Type:  "RSA PUBLIC KEY",
-		Bytes: der,
-	})
-	if err != nil {
+	if err := pem.Encode(&buf, pemBlock); err != nil {
 		return "", err
 	}
-	buf.Write(onion)
 
 	buf.WriteString(fmt.Sprintf("signing-key\n"))
 
-	der, err = x509.MarshalPKIXPublicKey(d.SigningKey)
+	pemBlock.Bytes, err = asn1.Marshal(d.SigningKey.PublicKey)
 	if err != nil {
 		return "", err
 	}
-	pub := pem.EncodeToMemory(&pem.Block{
-		Type:  "RSA PUBLIC KEY",
-		Bytes: der,
-	})
-	if err != nil {
+	if err := pem.Encode(&buf, pemBlock); err != nil {
 		return "", err
 	}
-	buf.Write(pub)
 
 	if len(d.Family) != 0 {
 		buf.WriteString(fmt.Sprintf("family %s\n", strings.Join(d.Family, " ")))
@@ -168,7 +167,7 @@ func (d *Descriptor) SignedDescriptor() (string, error) {
 	// Sign descriptor
 	signature, err := rsa.SignPKCS1v15(nil, d.SigningKey, crypto.Hash(0), digest[:])
 	if err != nil {
-		return "", err
+		return "", errors.Wrap(err, "rsa.SignPKCS1v15")
 	}
 	pem.Encode(&buf, &pem.Block{
 		Type:  "SIGNATURE",
@@ -178,7 +177,7 @@ func (d *Descriptor) SignedDescriptor() (string, error) {
 	// Sign extrainfo
 	signature, err = rsa.SignPKCS1v15(nil, d.SigningKey, crypto.Hash(0), digest[:])
 	if err != nil {
-		return "", err
+		return "", errors.Wrap(err, "rsa.SignPKCS1v15")
 	}
 	pem.Encode(&extra, &pem.Block{
 		Type:  "SIGNATURE",
@@ -193,19 +192,19 @@ func (d *Descriptor) Publish(address string) error {
 
 	desc, err := d.SignedDescriptor()
 	if err != nil {
-		return err
+		return errors.Wrap(err, "SignedDescriptor")
 	}
 	resp, err := http.Post(where, "tor/descriptor", strings.NewReader(desc))
 	if err != nil {
-		return err
+		return errors.Wrap(err, fmt.Sprintf("POST to %s/tor/descriptor", where))
 	}
 	defer resp.Body.Close()
 
-	//body, err := ioutil.ReadAll(resp.Body)
-	//if err != nil {
-	//	return err
-	//}
-	log.Println(resp)
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return errors.Wrap(err, "reading body failed")
+	}
+	log.Println(string(body))
 
 	return nil
 }

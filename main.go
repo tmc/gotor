@@ -8,20 +8,21 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"runtime"
 	"time"
+
+	"github.com/pkg/errors"
+
+	_ "net/http/pprof"
 )
 
-import _ "net/http/pprof"
 import _ "expvar"
 
 func main() {
-	runtime.GOMAXPROCS(runtime.NumCPU())
 	SetupRand()
 	SeedCellBuf()
 
 	torConfig := Config{
-		IsPublicServer:    false,
+		IsPublicServer:    true,
 		Platform:          "Tor 0.2.6.2-alpha on Go",
 		BandwidthAvg:      1073741824,
 		BandwidthBurst:    1073741824,
@@ -60,7 +61,7 @@ func main() {
 
 	log.Println("publishing")
 	or.PublishDescriptor()
-	log.Println("don publishing")
+	log.Println("done publishing")
 
 	nextRotate := time.After(time.Hour * 1)
 	nextPublish := time.After(time.Hour * 18)
@@ -70,7 +71,7 @@ func main() {
 		case <-nextRotate: //XXX randomer intervals
 			if err := or.RotateKeys(); err != nil {
 				log.Println("got nextrotate", err)
-				Log(LOG_WARN, "%v", err)
+				Log(LOG_WARN, "%v", errors.Wrap(err, "RotateKeys"))
 			}
 			nextRotate = time.After(time.Hour * 1)
 

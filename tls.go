@@ -233,7 +233,13 @@ func SetupTLS(or *ORCtx) error {
 
 func (or *ORCtx) WrapTLS(conn net.Conn, isClient bool) (*tls.Conn, *TorTLS, error) {
 	return tls.Server(conn, &tls.Config{
-		Certificates:       []tls.Certificate{or.serverTlsCtx.AuthCert},
+		Certificates: []tls.Certificate{
+			{
+				Certificate: [][]byte{or.serverTlsCtx.AuthCert.Raw},
+				PrivateKey:  or.serverTlsCtx.AuthKey,
+				Leaf:        or.serverTlsCtx.AuthCert,
+			},
+		},
 		InsecureSkipVerify: true,
 	}), or.GetTLSCtx(isClient), nil
 
