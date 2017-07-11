@@ -143,6 +143,8 @@ func (d *Descriptor) SignedDescriptor() (string, error) {
 		return "", err
 	}
 
+	buf.WriteString(fmt.Sprintf("reject *:*\n"))
+
 	if len(d.Family) != 0 {
 		buf.WriteString(fmt.Sprintf("family %s\n", strings.Join(d.Family, " ")))
 	}
