@@ -202,8 +202,11 @@ func (or *ORCtx) PublishDescriptor() error {
 	if or.config.IsPublicServer {
 		log.Println("is public")
 		or.UpdateDescriptor()
-		authorities := []string{"127.0.0.1:7000", "127.0.0.1:7001"}
-		//authorities := []string{"171.25.193.9:443", "86.59.21.38:80", "208.83.223.34:443", "199.254.238.52:80", "194.109.206.212:80", "131.188.40.189:80", "128.31.0.34:9131", "193.23.244.244:80", "154.35.32.5:80"}
+		authorities := []string{"171.25.193.9:443", "86.59.21.38:80", "208.83.223.34:443", "199.254.238.52:80", "194.109.206.212:80", "131.188.40.189:80", "128.31.0.34:9131", "193.23.244.244:80", "154.35.32.5:80"}
+		// TODO(tmc): parse DirAuthority config lines for this behavior
+		if os.Getenv("TEST_LOCAL_NETWORK") == "1" {
+			authorities = []string{"127.0.0.1:7000", "127.0.0.1:7001"}
+		}
 		for _, auth := range authorities {
 			if err := or.descriptor.Publish(auth); err != nil {
 				Log(LOG_NOTICE, "%s", err) // XXX
