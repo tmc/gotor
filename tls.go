@@ -20,6 +20,8 @@ import (
 	"net"
 	"strings"
 	"time"
+
+	"github.com/davecgh/go-spew/spew"
 )
 
 const SSLRecordSize = 16 * 1024
@@ -45,8 +47,14 @@ func NewTLSCtx(isClient bool, or *ORCtx) (*TorTLS, error) {
 		nickname1 := RandomHostname(8, 20, "www.", ".net")
 		nickname2 := RandomHostname(8, 20, "www.", ".com")
 
-		issued, _ := time.ParseDuration("-24h") // XXX check what tor does (some time ago, then a long-time cert)
-		expires, _ := time.ParseDuration("24h") // XXX also, don't re-use for all certs
+		issued, err := time.ParseDuration("-24h") // XXX check what tor does (some time ago, then a long-time cert)
+		if err != nil {
+			return nil, err
+		}
+		expires, err := time.ParseDuration("24h") // XXX also, don't re-use for all certs
+		if err != nil {
+			return nil, err
+		}
 
 		tmpPk, err := GenerateRSAKeyWithExponent(1024, 65537)
 		if err != nil {
@@ -233,16 +241,61 @@ func SetupTLS(or *ORCtx) error {
 }
 
 func (or *ORCtx) WrapTLS(conn net.Conn, isClient bool) (*tls.Conn, *TorTLS, error) {
-	return tls.Server(conn, &tls.Config{
-		Certificates: []tls.Certificate{
-			{
-				Certificate: [][]byte{or.serverTlsCtx.AuthCert.Raw},
-				PrivateKey:  or.serverTlsCtx.AuthKey,
-				Leaf:        or.serverTlsCtx.AuthCert,
+	if isClient {
+		return tls.Client(conn, &tls.Config{
+			GetConfigForClient: func(ch *tls.ClientHelloInfo) (*tls.Config, error) {
+				log.Println("got geetconfigforclient")
+				spew.Dump(ch)
+				return nil, nil
 			},
-		},
-		InsecureSkipVerify: true,
-	}), or.GetTLSCtx(isClient), nil
+			GetClientCertificate: func(cri *tls.CertificateRequestInfo) (*tls.Certificate, error) {
+				spew.Dump("got cri", cri)
+				return &tls.Certificate{
+					Certificate: [][]byte{or.clientTlsCtx.LinkCertDER},
+					PrivateKey:  or.clientTlsCtx.LinkKey,
+					Leaf:        or.clientTlsCtx.LinkCert,
+				}, nil
+			},
+
+			/*
+				Certificates: []tls.Certificate{
+					{
+						Certificate: [][]byte{or.clientTlsCtx.LinkCert.Raw},
+						PrivateKey:  or.clientTlsCtx.LinkKey,
+						Leaf:        or.clientTlsCtx.LinkCert,
+					},
+				},
+			*/
+			PreferServerCipherSuites: true,
+			InsecureSkipVerify:       true,
+			CurvePreferences:         []tls.CurveID{tls.CurveP256},
+		}), or.GetTLSCtx(isClient), nil
+	} else {
+		return tls.Server(conn, &tls.Config{
+			ClientAuth: tls.RequireAnyClientCert,
+			GetCertificate: func(ch *tls.ClientHelloInfo) (*tls.Certificate, error) {
+				log.Println("got getcert")
+				spew.Dump(ch)
+				return &tls.Certificate{
+					Certificate: [][]byte{or.serverTlsCtx.LinkCertDER},
+					PrivateKey:  or.serverTlsCtx.LinkKey,
+					Leaf:        or.serverTlsCtx.LinkCert,
+				}, nil
+			},
+			/*
+				Certificates: []tls.Certificate{
+					{
+						Certificate: [][]byte{or.serverTlsCtx.LinkCert.Raw},
+						PrivateKey:  or.serverTlsCtx.LinkKey,
+						Leaf:        or.serverTlsCtx.LinkCert,
+					},
+				},
+			*/
+			PreferServerCipherSuites: true,
+			CurvePreferences:         []tls.CurveID{tls.CurveP256},
+			InsecureSkipVerify:       true,
+		}), or.GetTLSCtx(isClient), nil
+	}
 
 	/*
 		var tlsConn *Conn

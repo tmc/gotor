@@ -14,12 +14,13 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/asn1"
-	"errors"
 	"hash"
 	"io"
 	"log"
 	"net"
 	"time"
+
+	"github.com/pkg/errors"
 )
 
 const OUR_MIN_VERSION = 4
@@ -37,7 +38,7 @@ func (c *OnionConnection) negotiateVersionServer(conn io.Reader) error {
 		bytes, err := conn.Read(readCell[totalRead:5])
 		totalRead += bytes
 		if err != nil {
-			return err
+			return errors.Wrap(err, "issue reading VERSIONS cell")
 		}
 	}
 
@@ -57,7 +58,7 @@ func (c *OnionConnection) negotiateVersionServer(conn io.Reader) error {
 		bytes, err := conn.Read(buf[totalRead:])
 		totalRead += bytes
 		if err != nil {
-			return err
+			return errors.Wrap(err, "error reading rest of VERSIONS cell")
 		}
 	}
 
