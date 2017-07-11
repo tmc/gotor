@@ -204,7 +204,7 @@ func HandleORConnServer(or *ORCtx, conn net.Conn) {
 	go me.writer(tlsConn)
 
 	if err := me.negotiateVersionServer(tlsConn); err != nil {
-		log.Println("issue negotiontgadf", err)
+		log.Println("issue negotiating version server", err)
 		Log(LOG_INFO, "%s", err)
 		return
 	}
