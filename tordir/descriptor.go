@@ -175,7 +175,7 @@ func (d *Descriptor) SignedDescriptor() (string, error) {
 	})
 
 	// Sign extrainfo
-	signature, err = rsa.SignPKCS1v15(nil, d.SigningKey, crypto.Hash(0), digest[:])
+	signature, err = rsa.SignPKCS1v15(nil, d.SigningKey, crypto.Hash(0), extraDigest[:])
 	if err != nil {
 		return "", errors.Wrap(err, "rsa.SignPKCS1v15")
 	}
