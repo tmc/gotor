@@ -12,6 +12,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/asn1"
 	"encoding/base32"
 	"log"
 	"math/big"
@@ -132,17 +133,17 @@ func NewTLSCtx(isClient bool, or *ORCtx) (*TorTLS, error) {
 			return nil, err
 		}
 
-		keyDer, err := x509.MarshalPKIXPublicKey(identityPk.Public())
+		keyAsn, err := asn1.Marshal(identityPk.PublicKey)
 		if err != nil {
 			return nil, err
 		}
-		fingerprint := sha1.Sum(keyDer)
+		fingerprint := sha1.Sum(keyAsn)
 		log.Printf("Our fingerprint is %X\n", fingerprint)
 		copy(ttls.Fingerprint[:], fingerprint[:])
 
 		{
 			sha := sha256.New()
-			sha.Write(keyDer)
+			sha.Write(keyAsn)
 			ttls.Fingerprint256 = sha.Sum(nil)
 		}
 

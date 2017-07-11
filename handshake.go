@@ -13,6 +13,7 @@ import (
 	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/asn1"
 	"errors"
 	"hash"
 	"io"
@@ -374,16 +375,16 @@ func (c *OnionConnection) handleCerts(cell Cell, cert *x509.Certificate) error {
 		if cType == 2 { // ID
 			// Find the fingerprint
 
-			keyDer, err := x509.MarshalPKIXPublicKey(theCert)
+			keyAsn, err := asn1.Marshal(theCert)
 			if err != nil {
 				return err
 			}
 
-			fingerprint := sha1.Sum(keyDer)
+			fingerprint := sha1.Sum(keyAsn)
 			copy(fp[:], fingerprint[:])
 
 			sha := sha256.New()
-			sha.Write(keyDer)
+			sha.Write(keyAsn)
 			fp256 = sha.Sum(nil)
 		}
 
