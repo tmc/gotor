@@ -13,10 +13,10 @@ import (
 	"encoding/base64"
 	"encoding/pem"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"net"
 	"net/http"
+	"net/http/httputil"
 	"strings"
 	"time"
 
@@ -200,11 +200,11 @@ func (d *Descriptor) Publish(address string) error {
 	}
 	defer resp.Body.Close()
 
-	body, err := ioutil.ReadAll(resp.Body)
+	dump, err := httputil.DumpResponse(resp, true)
 	if err != nil {
-		return errors.Wrap(err, "reading body failed")
+		return err
 	}
-	log.Println(string(body))
+	log.Println(string(dump))
 
 	return nil
 }
